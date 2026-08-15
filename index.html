@@ -1087,8 +1087,8 @@
                     <p>目標單價 (USD)：<span id="targetUsdResult" class="value-text"></span></p>
                     <p>輸入報價 (USD)：<span id="quoteUsdResult" class="value-text"></span></p>
                     <p>預計淨利潤（輸入方案）(USD)：<span id="profitResult" class="value-text"></span></p>
-                    <p>修正後預計淨利潤 (USD)：<span id="correctedProfitResult" class="value-text"></span></p>
-                    <p>自動補差金額 (USD)：<span id="correctionAmountResult" class="value-text"></span></p>
+                    <p id="correctedProfitLine">修正後預計淨利潤 (USD)：<span id="correctedProfitResult" class="value-text"></span></p>
+                    <p id="correctionAmountLine">自動補差金額 (USD)：<span id="correctionAmountResult" class="value-text"></span></p>
                     <p class="inline-break">Unit price: USD <span id="a1Result" class="value-text"></span> / pc (EXW)</p>
                     <p>Quantity: <span id="b1Result" class="value-text"></span> pcs</p>
                     <p class="inline-break">USD <span id="a1TimesB1A" class="value-text"></span> × <span
@@ -2410,13 +2410,16 @@
             const productCostTotal = roundTo(costUsd * quantity, 6);
             const totalCost = roundTo(productCostTotal + shippingUsd + customBaseTotal, 6);
 
-            // 先計算使用者原始輸入方案的真實損益，再反推達到目標利潤所需的補差。
+            // 先計算原始方案損益；只有產品報價低於成本時才啟動補差。
             const quotedProductTotal = roundTo(quotedUnitPrice * quantity, 6);
             const originalRevenue = roundTo(quotedProductTotal + baseShippingFinal + customBaseTotal, 6);
             const originalPlatformFee = roundTo(originalRevenue * platformFeeRate, 6);
             const originalNetProfit = roundTo(originalRevenue - originalPlatformFee - totalCost, 6);
             const targetNetProfit = roundTo(productCostTotal * markupRate, 6);
-            const netProfitShortfall = roundTo(Math.max(0, targetNetProfit - originalNetProfit), 6);
+            const needsPriceCorrection = quoteProvided && quotedUnitPrice < costUsd;
+            const netProfitShortfall = needsPriceCorrection
+                ? roundTo(Math.max(0, targetNetProfit - originalNetProfit), 6)
+                : 0;
             const correctionCharge = roundTo(netProfitShortfall / (1 - platformFeeRate), 6);
 
             let shippingGapExtra = 0;
@@ -2449,6 +2452,9 @@
             setProfitResult('profitResult', originalNetProfit);
             setProfitResult('correctedProfitResult', correctedNetProfit);
             document.getElementById('correctionAmountResult').textContent = formatMoney(correctionCharge);
+            const showCorrection = needsPriceCorrection && correctionCharge > 0;
+            document.getElementById('correctedProfitLine').classList.toggle('hidden', !showCorrection);
+            document.getElementById('correctionAmountLine').classList.toggle('hidden', !showCorrection);
 
             document.getElementById('a1Result').textContent = formatMoney(a1);
             document.getElementById('b1Result').textContent = String(b1);
