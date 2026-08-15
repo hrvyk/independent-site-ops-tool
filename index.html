@@ -873,11 +873,11 @@
         <div class="app-topbar mb-4">
             <div>
                 <h1 class="app-brand">獨立站運營工具</h1>
-                <p id="uiVersionCaption" class="app-subtitle small-text">當前配色：月亮暗黑 · V2</p>
+                <p id="uiVersionCaption" class="app-subtitle small-text">目前版本：月亮暗黑 · V2.1</p>
             </div>
             <div class="version-switcher">
                 <button id="versionV1Btn" class="version-btn" onclick="setUiVersion('v1')">太陽亮色 · V1</button>
-                <button id="versionV2Btn" class="version-btn active" onclick="setUiVersion('v2')">月亮暗黑 · V2</button>
+                <button id="versionV2Btn" class="version-btn active" onclick="setUiVersion('v2')">月亮暗黑 · V2.1</button>
             </div>
         </div>
 
@@ -2099,7 +2099,7 @@
             const isV1 = version === 'v1';
             v1Btn.classList.toggle('active', isV1);
             v2Btn.classList.toggle('active', !isV1);
-            caption.textContent = isV1 ? '當前配色：太陽亮色 · V1' : '當前配色：月亮暗黑 · V2';
+            caption.textContent = isV1 ? '目前版本：太陽亮色 · V1' : '目前版本：月亮暗黑 · V2.1';
         }
 
         function setUiVersion(version) {
