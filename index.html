@@ -873,11 +873,11 @@
         <div class="app-topbar mb-4">
             <div>
                 <h1 class="app-brand">獨立站運營工具</h1>
-                <p id="uiVersionCaption" class="app-subtitle small-text">目前版本：月亮暗黑 · V2.1</p>
+                <p id="uiVersionCaption" class="app-subtitle small-text">目前版本：月亮暗黑 · V2.2</p>
             </div>
             <div class="version-switcher">
                 <button id="versionV1Btn" class="version-btn" onclick="setUiVersion('v1')">太陽亮色 · V1</button>
-                <button id="versionV2Btn" class="version-btn active" onclick="setUiVersion('v2')">月亮暗黑 · V2.1</button>
+                <button id="versionV2Btn" class="version-btn active" onclick="setUiVersion('v2')">月亮暗黑 · V2.2</button>
             </div>
         </div>
 
@@ -1358,12 +1358,14 @@
         const DECIMAL_OR_EMPTY_REGEX = /^\d*(?:\.\d*)?$/;
         const DECIMAL_REQUIRED_REGEX = /^\d+(?:\.\d+)?$/;
         const INTEGER_ONLY_REGEX = /^\d+$/;
+        const MAX_SAFE_SIX_DECIMAL_VALUE = Number.MAX_SAFE_INTEGER / 1_000_000;
         const UI_VERSION_STORAGE_KEY = 'ops_tool_ui_version_mode_v2';
 
         let currentExchangeRate = 7.27;
         let lastSuccessfulExchangeRate = 7.27;
         let toastTimerId = null;
         let advancedValidationTimerId = null;
+        let exchangeRateRequestId = 0;
         let localTimeZone = 'Asia/Shanghai';
 	        let worldTimeTimerId = null;
 	        const worldCities = [];
@@ -2100,7 +2102,7 @@
             const isV1 = version === 'v1';
             v1Btn.classList.toggle('active', isV1);
             v2Btn.classList.toggle('active', !isV1);
-            caption.textContent = isV1 ? '目前版本：太陽亮色 · V1' : '目前版本：月亮暗黑 · V2.1';
+            caption.textContent = isV1 ? '目前版本：太陽亮色 · V1' : '目前版本：月亮暗黑 · V2.2';
         }
 
         function setUiVersion(version) {
@@ -2171,11 +2173,13 @@
         }
 
         async function fetchExchangeRate() {
+            const requestId = ++exchangeRateRequestId;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 8000);
                 const response = await fetch('https://open.er-api.com/v6/latest/USD', { signal: controller.signal });
-                clearTimeout(timeoutId);
+                if (requestId !== exchangeRateRequestId) return;
 
                 if (!response.ok) {
                     setRateStatus('未更新', false);
@@ -2184,23 +2188,35 @@
                 }
 
                 const data = await response.json();
+                if (requestId !== exchangeRateRequestId) return;
                 const rate = data?.rates?.CNY;
-                if (!Number.isFinite(rate)) {
+                if (!Number.isFinite(rate) || rate <= 0) {
                     setRateStatus('未更新', false);
                     showToast('查詢錯誤', 'error');
                     return;
                 }
 
+                if (Math.abs(rate - currentExchangeRate) > Number.EPSILON) {
+                    invalidateExchangeDependentResults();
+                }
                 currentExchangeRate = rate;
                 lastSuccessfulExchangeRate = rate;
                 document.getElementById('exchangeRate').textContent = roundTo(rate, 2).toFixed(2);
                 setRateStatus('已更新', true);
             } catch (error) {
+                if (requestId !== exchangeRateRequestId) return;
                 currentExchangeRate = lastSuccessfulExchangeRate;
                 document.getElementById('exchangeRate').textContent = roundTo(lastSuccessfulExchangeRate, 2).toFixed(2);
                 setRateStatus('未更新', false);
                 showToast('網路錯誤', 'error');
+            } finally {
+                clearTimeout(timeoutId);
             }
+        }
+
+        function invalidateExchangeDependentResults() {
+            document.getElementById('result').classList.add('hidden');
+            invalidateAdvancedResult();
         }
 
         function calculatePrice() {
@@ -2312,9 +2328,16 @@
             errorNode.classList.toggle('visible', isInvalid);
         }
 
+        function invalidateAdvancedResult() {
+            const result = document.getElementById('advancedResult');
+            result.classList.add('hidden');
+            delete result.dataset.copyText;
+            delete result.dataset.exchangeRate;
+        }
+
         function validateAdvancedInputs() {
             const fields = [
-                { id: 'costPrice', type: 'decimal' },
+                { id: 'costPrice', type: 'decimal', required: true },
                 { id: 'markupAdvanced', type: 'decimal' },
                 { id: 'platformFee', type: 'decimal' },
                 { id: 'quoteUsd', type: 'decimal' },
@@ -2332,6 +2355,7 @@
 
                 if (field.type === 'decimal') {
                     isInvalid = !DECIMAL_OR_EMPTY_REGEX.test(value)
+                        || (field.required && value === '')
                         || (value !== '' && !Number.isFinite(Number(value)));
                 } else if (field.type === 'integer') {
                     const numericValue = Number(value);
@@ -2370,6 +2394,12 @@
                 const node = document.getElementById(id);
                 node.addEventListener('focus', startAdvancedValidationTimer);
                 node.addEventListener('blur', stopAdvancedValidationTimer);
+                node.addEventListener('input', invalidateAdvancedResult);
+            });
+
+            document.getElementById('costCurrency').addEventListener('change', () => {
+                invalidateAdvancedResult();
+                validateAdvancedInputs();
             });
         }
 
@@ -2448,6 +2478,23 @@
             const correctedNetProfit = roundTo(e1 - platformFeeAmount - totalCost, 6);
             const originalNetProfitRmb = roundTo(originalNetProfit * currentExchangeRate, 6);
 
+            const calculationValues = [
+                costUsd, targetUnitQuote, quotedUnitPrice, shippingUsd, baseShippingFinal,
+                customBaseTotal, productCostTotal, totalCost, quotedProductTotal, originalRevenue,
+                originalPlatformFee, originalNetProfit, targetNetProfit, netProfitShortfall,
+                correctionCharge, shippingGapExtra, customGapTotal, shippingFinal, customFinalTotal,
+                customFinalUnit, c1, d1, e1, platformFeeAmount, correctedNetProfit,
+                originalNetProfitRmb
+            ];
+            const calculationsAreSafe = calculationValues.every(value => (
+                Number.isFinite(value) && Math.abs(value) <= MAX_SAFE_SIX_DECIMAL_VALUE
+            ));
+            if (!calculationsAreSafe) {
+                invalidateAdvancedResult();
+                showToast('數值超出六位小數安全範圍，請縮小輸入值', 'error');
+                return;
+            }
+
             document.getElementById('costUsdResult').textContent = formatMoney(costUsd);
             document.getElementById('targetUsdResult').textContent = formatMoney(targetUnitQuote);
             document.getElementById('quoteUsdResult').textContent = formatMoney(quotedUnitPrice);
@@ -2455,7 +2502,7 @@
             setProfitResult('profitRmbResult', originalNetProfitRmb);
             setProfitResult('correctedProfitResult', correctedNetProfit);
             document.getElementById('correctionAmountResult').textContent = formatMoney(correctionCharge);
-            const showCorrection = needsPriceCorrection && correctionCharge > 0;
+            const showCorrection = needsPriceCorrection && roundTo(correctionCharge, 2) > 0;
             document.getElementById('correctedProfitLine').classList.toggle('hidden', !showCorrection);
             document.getElementById('correctionAmountLine').classList.toggle('hidden', !showCorrection);
 
@@ -2489,6 +2536,7 @@
 
             const advancedResult = document.getElementById('advancedResult');
             advancedResult.dataset.copyText = copyLines.join('\n');
+            advancedResult.dataset.exchangeRate = currentExchangeRate.toFixed(6);
             advancedResult.classList.remove('hidden');
         }
 
